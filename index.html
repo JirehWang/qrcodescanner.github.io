@@ -6,23 +6,50 @@
   <title>QR Scanner</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-    #reader { width: 100vw; height: 100vh; }
-    #flash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(40, 167, 69, 0.6); display: none; z-index: 999; pointer-events: none; }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+    #reader { width: 100vw; height: 100vh; transition: transform 0.1s; }
     
-    /* 極簡切換按鈕：右下角半透明圓圈 */
+    /* 核心：成功閃爍層 */
+    #flash {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(40, 167, 69, 0.8); /* 更濃的綠色 */
+      display: none; z-index: 999; pointer-events: none;
+      border: 20px solid #28a745; /* 增加綠色外框感 */
+      box-sizing: border-box;
+    }
+
+    /* 掃描成功時的震動與縮放效果 */
+    .scan-success-effect {
+      animation: pulse-visual 0.4s ease-out;
+    }
+
+    @keyframes pulse-visual {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+
+    /* 切換按鈕 */
     #switch-btn {
       position: fixed; bottom: 30px; right: 30px;
-      width: 50px; height: 50px; background: rgba(255, 255, 255, 0.2);
+      width: 55px; height: 55px; background: rgba(255, 255, 255, 0.2);
       border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      z-index: 1000; backdrop-filter: blur(5px); cursor: pointer;
+      z-index: 1000; backdrop-filter: blur(10px); cursor: pointer;
     }
-    #switch-btn svg { fill: white; width: 24px; height: 24px; }
+    #switch-btn svg { fill: white; width: 28px; height: 28px; }
+
+    /* 顯示目前狀態的小標籤 (選用，讓操作者更安心) */
+    #status-tip {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.5); color: #fff; padding: 5px 15px;
+      border-radius: 20px; font-size: 12px; z-index: 1000; pointer-events: none;
+    }
   </style>
 </head>
 <body>
 
+  <div id="status-tip">等待 QR Code...</div>
   <div id="flash"></div>
   <div id="reader"></div>
   
@@ -31,7 +58,6 @@
   </div>
 
   <script>
-    // 🚀 已保留你提供的 GAS 網址
     const GAS_URL = "https://script.google.com/macros/s/AKfycbzd_3wGa1jwkPyuIA9A1T3X8rq04W9HToZtgB0-3oTw0H3ZPRTdK-QgFGKEPZuGSfU/exec";
     
     let isProcessing = false;
@@ -39,73 +65,63 @@
     let cameraList = [];
     let currentCameraIndex = 0;
 
-    // 1. 初始化並取得相機列表
     async function initScanner() {
       html5QrCode = new Html5Qrcode("reader");
       try {
         cameraList = await Html5Qrcode.getCameras();
-        if (cameraList && cameraList.length > 0) {
-          // 預設尋找後鏡頭，找不到就用最後一個
-          currentCameraIndex = cameraList.findIndex(d => 
-            d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear')
-          );
+        if (cameraList.length > 0) {
+          currentCameraIndex = cameraList.findIndex(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear'));
           if (currentCameraIndex === -1) currentCameraIndex = cameraList.length - 1;
-          
           startCurrentCamera();
-        } else {
-          alert("找不到相機設備");
         }
-      } catch (err) {
-        alert("無法讀取相機：" + err);
-      }
+      } catch (err) { alert("相機錯誤: " + err); }
     }
 
-    // 2. 啟動選定的相機
     function startCurrentCamera() {
       const cameraId = cameraList[currentCameraIndex].id;
-      html5QrCode.start(
-        cameraId, 
-        { 
-          fps: 15, 
-          qrbox: (w, h) => { 
-            const s = Math.min(w, h) * 0.7; 
-            return { width: s, height: s }; 
-          } 
-        },
+      html5QrCode.start(cameraId, 
+        { fps: 20, qrbox: (w, h) => { const s = Math.min(w, h) * 0.7; return { width: s, height: s }; } },
         (text) => { if (!isProcessing) handleScan(text.trim()); }
-      ).catch(err => console.error("啟動失敗", err));
+      );
     }
 
-    // 3. 按鈕點擊：切換到下一個鏡頭
     async function switchCamera() {
       if (cameraList.length < 2) return;
-      
-      if (html5QrCode && html5QrCode.isScanning) {
-        await html5QrCode.stop();
-      }
-      
+      if (html5QrCode.isScanning) await html5QrCode.stop();
       currentCameraIndex = (currentCameraIndex + 1) % cameraList.length;
       startCurrentCamera();
     }
 
-    // 4. 掃描處理 (保留你原本的邏輯)
     async function handleScan(data) {
       isProcessing = true;
-      document.getElementById('flash').style.display = 'block';
-    
-      // 🚀 關鍵修正：將 'uid' 改為 'userId' 以對齊你的主程式
+      
+      // --- 🚀 強化視覺反饋啟動 ---
+      const flash = document.getElementById('flash');
+      const reader = document.getElementById('reader');
+      const tip = document.getElementById('status-tip');
+      
+      flash.style.display = 'block'; // 顯示綠色閃光
+      reader.classList.add('scan-success-effect'); // 讓鏡頭畫面縮放震動
+      tip.innerText = "✅ 掃描成功：" + data;
+      tip.style.background = "#28a745";
+
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // 雙重震動更有感
+
+      // 傳送資料
       const urlParams = new URLSearchParams(window.location.search);
-      const uid = urlParams.get('userId') || 'Unknown_Device'; 
-    
+      const uid = urlParams.get('userId') || urlParams.get('uid') || 'Unknown';
       try {
-        const target = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
-        await fetch(target);
-      } catch (e) { console.error("傳送失敗"); }
-    
+        await fetch(`${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`);
+      } catch (e) { tip.innerText = "❌ 傳送失敗"; }
+
+      // 1.2 秒後恢復原狀
       setTimeout(() => {
-        document.getElementById('flash').style.display = 'none';
+        flash.style.display = 'none';
+        reader.classList.remove('scan-success-effect');
         isProcessing = false;
-      }, 1500);
+        tip.innerText = "等待 QR Code...";
+        tip.style.background = "rgba(0,0,0,0.5)";
+      }, 1200); 
     }
 
     window.onload = initScanner;
