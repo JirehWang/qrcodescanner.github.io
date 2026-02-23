@@ -92,19 +92,21 @@
     async function handleScan(data) {
       isProcessing = true;
       document.getElementById('flash').style.display = 'block';
-      if (navigator.vibrate) navigator.vibrate(100);
-
+    
+      // 🚀 從網址抓取 uid 參數，如果沒有就用預設
+      const urlParams = new URLSearchParams(window.location.search);
+      const uid = urlParams.get('uid') || 'Unknown_Device';
+    
       try {
-        // 直接將資料傳回你的 GAS
-        await fetch(`${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=REMOTE_SCANNER`);
-      } catch (e) { 
-        console.error("傳送失敗", e); 
-      }
-
+        // 傳送時帶上 userId
+        const target = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
+        await fetch(target);
+      } catch (e) { console.error("傳送失敗"); }
+    
       setTimeout(() => {
         document.getElementById('flash').style.display = 'none';
         isProcessing = false;
-      }, 1500); 
+      }, 1500);
     }
 
     window.onload = initScanner;
