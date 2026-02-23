@@ -93,12 +93,11 @@
       isProcessing = true;
       document.getElementById('flash').style.display = 'block';
     
-      // 🚀 從網址抓取 uid 參數，如果沒有就用預設
+      // 🚀 關鍵修正：將 'uid' 改為 'userId' 以對齊你的主程式
       const urlParams = new URLSearchParams(window.location.search);
-      const uid = urlParams.get('uid') || 'Unknown_Device';
+      const uid = urlParams.get('userId') || 'Unknown_Device'; 
     
       try {
-        // 傳送時帶上 userId
         const target = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
         await fetch(target);
       } catch (e) { console.error("傳送失敗"); }
