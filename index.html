@@ -112,9 +112,11 @@
       startCurrentCamera();
     }
 
-    async function handleScan(data) {
+async function handleScan(data) {
+      if (isProcessing) return; // 雙重保險，避免重複觸發
       isProcessing = true;
       
+      // 1. 瞬間啟動視覺與震動回饋
       const flash = document.getElementById('flash');
       const reader = document.getElementById('reader');
       const tip = document.getElementById('status-tip');
@@ -126,26 +128,25 @@
 
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
 
+      // 2. 準備傳送資料
       const urlParams = new URLSearchParams(window.location.search);
       const uid = urlParams.get('userId') || urlParams.get('uid') || 'Unknown';
-      
-      // 🚀 關鍵修復：加上 mode: 'no-cors'，避免 GAS 阻擋跨域請求而報錯
-      try {
-        const targetUrl = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
-        await fetch(targetUrl, { mode: 'no-cors' }); 
-      } catch (e) { 
-        // 因為使用了 no-cors，這裡通常只有在真的「沒有網路」時才會報錯
-        tip.innerText = "❌ 網路連線異常"; 
-        tip.style.background = "#dc3545";
-      }
+      const targetUrl = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
 
-      // 1.2 秒後恢復原狀，準備掃描下一個
+      // 🚀 關鍵修復：拿掉 await！讓 fetch 在背景默默自己跑，絕對不卡住畫面！
+      fetch(targetUrl, { mode: 'no-cors' }).catch(e => {
+         console.log("背景傳送異常", e);
+      });
+
+      // 3. 獨立且絕對準時的 1.2 秒冷卻器
       setTimeout(() => {
         flash.style.display = 'none';
         reader.classList.remove('scan-success-effect');
-        isProcessing = false;
         tip.innerText = "等待 QR Code...";
         tip.style.background = "rgba(0,0,0,0.5)";
+        
+        // 1.2 秒一到，立刻解除鎖定，準備秒掃下一張！
+        isProcessing = false; 
       }, 1200); 
     }
 
