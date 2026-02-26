@@ -12,9 +12,9 @@
     /* 核心：成功閃爍層 */
     #flash {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(40, 167, 69, 0.8); /* 更濃的綠色 */
+      background: rgba(40, 167, 69, 0.8);
       display: none; z-index: 999; pointer-events: none;
-      border: 20px solid #28a745; /* 增加綠色外框感 */
+      border: 20px solid #28a745;
       box-sizing: border-box;
     }
 
@@ -39,11 +39,12 @@
     }
     #switch-btn svg { fill: white; width: 28px; height: 28px; }
 
-    /* 顯示目前狀態的小標籤 (選用，讓操作者更安心) */
+    /* 顯示目前狀態的小標籤 */
     #status-tip {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
       background: rgba(0,0,0,0.5); color: #fff; padding: 5px 15px;
       border-radius: 20px; font-size: 12px; z-index: 1000; pointer-events: none;
+      white-space: nowrap;
     }
   </style>
 </head>
@@ -58,6 +59,7 @@
   </div>
 
   <script>
+    // ⚠️ 記得：只要你在 GAS 有修改過後端並「重新部署」，這個 URL 就要跟著換！
     const GAS_URL = "https://script.google.com/macros/s/AKfycbyJbzjHIeFFRbqT-Ttk2OAPYfF-qDKYES8dJiu4sJCR4t2Fq9PTtbALwuiJDBxh55kR/exec";
     
     let isProcessing = false;
@@ -66,7 +68,10 @@
     let currentCameraIndex = 0;
 
     async function initScanner() {
-      html5QrCode = new Html5Qrcode("reader");
+      // 🚀 加速秘訣 1：限制只辨識 QR Code，減輕 CPU 負擔
+      const formatsToSupport = [ Html5QrcodeSupportedFormats.QR_CODE ];
+      html5QrCode = new Html5Qrcode("reader", { formatsToSupport: formatsToSupport });
+      
       try {
         cameraList = await Html5Qrcode.getCameras();
         if (cameraList.length > 0) {
@@ -79,10 +84,25 @@
 
     function startCurrentCamera() {
       const cameraId = cameraList[currentCameraIndex].id;
-      html5QrCode.start(cameraId, 
-        { fps: 20, qrbox: (w, h) => { const s = Math.min(w, h) * 0.7; return { width: s, height: s }; } },
-        (text) => { if (!isProcessing) handleScan(text.trim()); }
-      );
+      
+      // 🚀 加速秘訣 2：提升 FPS 並嘗試開啟連續對焦
+      const config = { 
+        fps: 30, // 提升到 30
+        qrbox: (w, h) => { const s = Math.min(w, h) * 0.7; return { width: s, height: s }; },
+        videoConstraints: {
+          facingMode: "environment",
+          advanced: [{ focusMode: "continuous" }] 
+        }
+      };
+
+      html5QrCode.start(cameraId, config, (text) => { 
+        if (!isProcessing) handleScan(text.trim()); 
+      }).catch(err => {
+        // 如果進階相機參數不被舊手機支援，退回基本設定重試
+        html5QrCode.start(cameraId, { fps: 20, qrbox: 250 }, (text) => {
+           if (!isProcessing) handleScan(text.trim());
+        });
+      });
     }
 
     async function switchCamera() {
@@ -95,26 +115,31 @@
     async function handleScan(data) {
       isProcessing = true;
       
-      // --- 🚀 強化視覺反饋啟動 ---
       const flash = document.getElementById('flash');
       const reader = document.getElementById('reader');
       const tip = document.getElementById('status-tip');
       
-      flash.style.display = 'block'; // 顯示綠色閃光
-      reader.classList.add('scan-success-effect'); // 讓鏡頭畫面縮放震動
+      flash.style.display = 'block'; 
+      reader.classList.add('scan-success-effect'); 
       tip.innerText = "✅ 掃描成功：" + data;
       tip.style.background = "#28a745";
 
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // 雙重震動更有感
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
 
-      // 傳送資料
       const urlParams = new URLSearchParams(window.location.search);
       const uid = urlParams.get('userId') || urlParams.get('uid') || 'Unknown';
+      
+      // 🚀 關鍵修復：加上 mode: 'no-cors'，避免 GAS 阻擋跨域請求而報錯
       try {
-        await fetch(`${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`);
-      } catch (e) { tip.innerText = "❌ 傳送失敗"; }
+        const targetUrl = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
+        await fetch(targetUrl, { mode: 'no-cors' }); 
+      } catch (e) { 
+        // 因為使用了 no-cors，這裡通常只有在真的「沒有網路」時才會報錯
+        tip.innerText = "❌ 網路連線異常"; 
+        tip.style.background = "#dc3545";
+      }
 
-      // 1.2 秒後恢復原狀
+      // 1.2 秒後恢復原狀，準備掃描下一個
       setTimeout(() => {
         flash.style.display = 'none';
         reader.classList.remove('scan-success-effect');
