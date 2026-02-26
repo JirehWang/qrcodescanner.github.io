@@ -50,7 +50,7 @@
 </head>
 <body>
 
-  <div id="status-tip">等待 QR Code...</div>
+  <div id="status-tip">等待 QR Code... (v4極速防連掃版)</div>
   <div id="flash"></div>
   <div id="reader"></div>
   
@@ -67,8 +67,12 @@
     let cameraList = [];
     let currentCameraIndex = 0;
 
+    // 🚀 新增：記憶大腦 (防護罩變數)
+    let lastScannedData = "";
+    let lastScannedTime = 0;
+
     async function initScanner() {
-      // 🚀 加速秘訣 1：限制只辨識 QR Code，減輕 CPU 負擔
+      // 🚀 加速秘訣 1：限制只辨識 QR Code
       const formatsToSupport = [ Html5QrcodeSupportedFormats.QR_CODE ];
       html5QrCode = new Html5Qrcode("reader", { formatsToSupport: formatsToSupport });
       
@@ -112,9 +116,19 @@
       startCurrentCamera();
     }
 
-async function handleScan(data) {
-      if (isProcessing) return; // 雙重保險，避免重複觸發
+    async function handleScan(data) {
+      // 🎯 核心防護：同一個人 5 秒內連掃，直接吃掉當作沒發生！
+      const now = Date.now();
+      if (data === lastScannedData && (now - lastScannedTime) < 5000) {
+        return; 
+      }
+
+      if (isProcessing) return; // 雙重保險
       isProcessing = true;
+      
+      // 📝 記住這次掃描的人和時間
+      lastScannedData = data;
+      lastScannedTime = now;
       
       // 1. 瞬間啟動視覺與震動回饋
       const flash = document.getElementById('flash');
@@ -123,7 +137,7 @@ async function handleScan(data) {
       
       flash.style.display = 'block'; 
       reader.classList.add('scan-success-effect'); 
-      tip.innerText = "✅ 掃描成功：" + data;
+      tip.innerText = "✅ 掃描成功：" + data; // 這裡目前會顯示 UID (例如 M17088...)
       tip.style.background = "#28a745";
 
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
@@ -133,7 +147,7 @@ async function handleScan(data) {
       const uid = urlParams.get('userId') || urlParams.get('uid') || 'Unknown';
       const targetUrl = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
 
-      // 🚀 關鍵修復：拿掉 await！讓 fetch 在背景默默自己跑，絕對不卡住畫面！
+      // 🚀 關鍵修復：射後不理，絕對不卡住畫面！
       fetch(targetUrl, { mode: 'no-cors' }).catch(e => {
          console.log("背景傳送異常", e);
       });
@@ -142,7 +156,7 @@ async function handleScan(data) {
       setTimeout(() => {
         flash.style.display = 'none';
         reader.classList.remove('scan-success-effect');
-        tip.innerText = "等待 QR Code...";
+        tip.innerText = "等待 QR Code... (v4極速防連掃版)";
         tip.style.background = "rgba(0,0,0,0.5)";
         
         // 1.2 秒一到，立刻解除鎖定，準備秒掃下一張！
