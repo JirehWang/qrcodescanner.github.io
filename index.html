@@ -9,7 +9,6 @@
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
     #reader { width: 100vw; height: 100vh; transition: transform 0.1s; }
     
-    /* 核心：成功閃爍層 */
     #flash {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(40, 167, 69, 0.8);
@@ -18,10 +17,7 @@
       box-sizing: border-box;
     }
 
-    /* 掃描成功時的震動與縮放效果 */
-    .scan-success-effect {
-      animation: pulse-visual 0.4s ease-out;
-    }
+    .scan-success-effect { animation: pulse-visual 0.4s ease-out; }
 
     @keyframes pulse-visual {
       0% { transform: scale(1); }
@@ -29,7 +25,6 @@
       100% { transform: scale(1); }
     }
 
-    /* 切換按鈕 */
     #switch-btn {
       position: fixed; bottom: 30px; right: 30px;
       width: 55px; height: 55px; background: rgba(255, 255, 255, 0.2);
@@ -39,7 +34,6 @@
     }
     #switch-btn svg { fill: white; width: 28px; height: 28px; }
 
-    /* 顯示目前狀態的小標籤 */
     #status-tip {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
       background: rgba(0,0,0,0.5); color: #fff; padding: 5px 15px;
@@ -50,7 +44,7 @@
 </head>
 <body>
 
-  <div id="status-tip">等待 QR Code... (v4極速防連掃版)</div>
+  <div id="status-tip">等待 QR Code... (v5 旗艦相容版)</div>
   <div id="flash"></div>
   <div id="reader"></div>
   
@@ -59,7 +53,6 @@
   </div>
 
   <script>
-    // ⚠️ 記得：只要你在 GAS 有修改過後端並「重新部署」，這個 URL 就要跟著換！
     const GAS_URL = "https://script.google.com/macros/s/AKfycbyJbzjHIeFFRbqT-Ttk2OAPYfF-qDKYES8dJiu4sJCR4t2Fq9PTtbALwuiJDBxh55kR/exec";
     
     let isProcessing = false;
@@ -67,44 +60,51 @@
     let cameraList = [];
     let currentCameraIndex = 0;
 
-    // 🚀 新增：記憶大腦 (防護罩變數)
     let lastScannedData = "";
     let lastScannedTime = 0;
 
     async function initScanner() {
-      // 🚀 加速秘訣 1：限制只辨識 QR Code
       const formatsToSupport = [ Html5QrcodeSupportedFormats.QR_CODE ];
       html5QrCode = new Html5Qrcode("reader", { formatsToSupport: formatsToSupport });
       
       try {
         cameraList = await Html5Qrcode.getCameras();
         if (cameraList.length > 0) {
+          // 嘗試找主鏡頭 (通常是 0 號或標籤帶有 back)
           currentCameraIndex = cameraList.findIndex(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear'));
           if (currentCameraIndex === -1) currentCameraIndex = cameraList.length - 1;
           startCurrentCamera();
         }
-      } catch (err) { alert("相機錯誤: " + err); }
+      } catch (err) { alert("無法取得相機列表: " + err); }
     }
 
     function startCurrentCamera() {
       const cameraId = cameraList[currentCameraIndex].id;
+      const tip = document.getElementById('status-tip');
+      tip.innerText = "相機啟動中...";
       
-      // 🚀 加速秘訣 2：提升 FPS 並嘗試開啟連續對焦
+      // 🚀 關鍵修復：拿掉 videoConstraints，避免 Pixel 7 Pro 多鏡頭衝突
       const config = { 
-        fps: 30, // 提升到 30
-        qrbox: (w, h) => { const s = Math.min(w, h) * 0.7; return { width: s, height: s }; },
-        videoConstraints: {
-          facingMode: "environment",
-          advanced: [{ focusMode: "continuous" }] 
-        }
+        fps: 30, 
+        qrbox: (w, h) => { const s = Math.min(w, h) * 0.7; return { width: s, height: s }; }
       };
 
       html5QrCode.start(cameraId, config, (text) => { 
         if (!isProcessing) handleScan(text.trim()); 
+      }).then(() => {
+        tip.innerText = "等待 QR Code... (v5 旗艦版)";
       }).catch(err => {
-        // 如果進階相機參數不被舊手機支援，退回基本設定重試
-        html5QrCode.start(cameraId, { fps: 20, qrbox: 250 }, (text) => {
+        console.warn("高速模式啟動失敗，嘗試安全模式", err);
+        
+        // 🛡️ 終極安全退回模式：參數降到最低
+        html5QrCode.start(cameraId, { fps: 15, qrbox: 250 }, (text) => {
            if (!isProcessing) handleScan(text.trim());
+        }).then(() => {
+           tip.innerText = "等待 QR Code... (安全模式)";
+        }).catch(err2 => {
+           tip.innerText = "❌ 相機啟動失敗";
+           tip.style.background = "#dc3545";
+           alert("相機啟動完全失敗。\n請確認瀏覽器已允許相機權限，或關閉其他佔用相機的App。\n錯誤代碼：" + err2);
         });
       });
     }
@@ -117,49 +117,37 @@
     }
 
     async function handleScan(data) {
-      // 🎯 核心防護：同一個人 5 秒內連掃，直接吃掉當作沒發生！
       const now = Date.now();
-      if (data === lastScannedData && (now - lastScannedTime) < 5000) {
-        return; 
-      }
+      if (data === lastScannedData && (now - lastScannedTime) < 5000) return; 
 
-      if (isProcessing) return; // 雙重保險
+      if (isProcessing) return; 
       isProcessing = true;
       
-      // 📝 記住這次掃描的人和時間
       lastScannedData = data;
       lastScannedTime = now;
       
-      // 1. 瞬間啟動視覺與震動回饋
       const flash = document.getElementById('flash');
       const reader = document.getElementById('reader');
       const tip = document.getElementById('status-tip');
       
       flash.style.display = 'block'; 
       reader.classList.add('scan-success-effect'); 
-      tip.innerText = "✅ 掃描成功：" + data; // 這裡目前會顯示 UID (例如 M17088...)
+      tip.innerText = "✅ 掃描成功：" + data; 
       tip.style.background = "#28a745";
 
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
 
-      // 2. 準備傳送資料
       const urlParams = new URLSearchParams(window.location.search);
       const uid = urlParams.get('userId') || urlParams.get('uid') || 'Unknown';
       const targetUrl = `${GAS_URL}?action=syncClickToServer&name=${encodeURIComponent(data)}&isChecked=true&userId=${uid}`;
 
-      // 🚀 關鍵修復：射後不理，絕對不卡住畫面！
-      fetch(targetUrl, { mode: 'no-cors' }).catch(e => {
-         console.log("背景傳送異常", e);
-      });
+      fetch(targetUrl, { mode: 'no-cors' }).catch(e => console.log("背景傳送異常", e));
 
-      // 3. 獨立且絕對準時的 1.2 秒冷卻器
       setTimeout(() => {
         flash.style.display = 'none';
         reader.classList.remove('scan-success-effect');
-        tip.innerText = "等待 QR Code... (v4極速防連掃版)";
+        tip.innerText = "等待 QR Code... (v5 旗艦版)";
         tip.style.background = "rgba(0,0,0,0.5)";
-        
-        // 1.2 秒一到，立刻解除鎖定，準備秒掃下一張！
         isProcessing = false; 
       }, 1200); 
     }
